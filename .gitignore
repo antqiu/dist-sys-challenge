@@ -1,0 +1,6 @@
+maelstrom/
+maelstrom.tar
+maelstrom.tar.bz2
+
+*.sum
+*.mod
