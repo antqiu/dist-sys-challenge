@@ -1,6 +1,9 @@
-maelstrom/
 maelstrom.tar
 maelstrom.tar.bz2
+
+maelstrom/doc
+maelstrom/demo
+maelstrom/store
 
 *.sum
 *.mod
