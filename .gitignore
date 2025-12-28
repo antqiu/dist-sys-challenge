@@ -4,6 +4,6 @@ maelstrom.tar.bz2
 maelstrom/doc
 maelstrom/demo
 maelstrom/store
-
+maelstrom-unique-ids/~/
 *.sum
 *.mod
