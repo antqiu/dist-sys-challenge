@@ -9,7 +9,6 @@ import (
 
 func main() {
 	n := maelstrom.NewNode()
-	n_id := n.ID() // node id: string
 	topology := make(map[string][]string)
 
 	seen_messages_arr := make([]int, 0)
@@ -21,36 +20,41 @@ func main() {
 		if err := json.Unmarshal(msg.Body, &body); err != nil {
 			return err
 		}
+
+		n_id := n.ID() // node id: string - this must be in the handler because it guarantees that it executes after init
+
 		
 		response := make(map[string]any)
-		// Update the message type to return back.
 		response["type"] = "broadcast_ok"
 
-		f, ok := body["message"].(float64) // assert that it is type int
+		f, ok := body["message"].(float64) // assert that it is at least type float
 		
 		if ok {
-			in := int(f)
-			_, ok = seen_messages[in]
-			if !ok {
+			in := int(f) // if float, convert to int
+			_, seen_ok := seen_messages[in]
+			if !seen_ok {
 				// append, broadcast
 				seen_messages_arr = append(seen_messages_arr, in)
-				if len(topology) != 0 {
-					_, ok := topology[n_id]
-					if ok {
-						for _, neighborString := range topology[n_id] {
-							n.Send(neighborString, map[string]any{
-								"type":    "broadcast",
-								"message": in,
-							})
-						}
+				_, topology_ok := topology[n_id]
+				if topology_ok {
+					for _, neighborString := range topology[n_id] {
+						n.Send(neighborString, map[string]any{
+							"type":    "broadcast",
+							"message": in,
+							"broadcasted" : "yes",
+						})
 					}
 				}
 				seen_messages[in] = true
 			}
 		}
 
-		// Echo the original message back with the updated message type.
-		return n.Reply(msg, response)
+		_, broadcasted := body["broadcasted"]
+		if !broadcasted {
+			return n.Reply(msg, response)
+		}
+
+		return nil
 	})
 
 	n.Handle("read", func(msg maelstrom.Message) error {
@@ -104,6 +108,8 @@ func main() {
 
 			topology[node] = neighbors
 		}
+
+		log.Printf("[%s] parsed topology: %#v", n.ID(), topology)
 		
 		// Echo the original message back with the updated message type.
 		return n.Reply(msg, response)
