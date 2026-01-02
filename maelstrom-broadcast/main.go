@@ -4,6 +4,8 @@ import (
     "encoding/json"
     "log"
 	"time"
+	"math/rand"
+	// "sync"
 
     maelstrom "github.com/jepsen-io/maelstrom/demo/go"
 )
@@ -16,6 +18,7 @@ func main() {
 
 	seen_messages_arr := make([]int, 0)
 	seen_messages := make(map[int]bool) // equivalent of a set
+	pending := make([]int, 0)
 
 	n.Handle("broadcast", func(msg maelstrom.Message) error {
 		// Unmarshal the message body as an loosely-typed map.
@@ -23,8 +26,6 @@ func main() {
 		if err := json.Unmarshal(msg.Body, &body); err != nil {
 			return err
 		}
-
-		// n_id := n.ID() // node id: string - this must be in the handler because it guarantees that it executes after init
 		
 		response := make(map[string]any)
 		response["type"] = "broadcast_ok"
@@ -55,13 +56,15 @@ func main() {
 			// is an array from gossiping, run throughh all of different values and gossip those
 			receiving_arr, ok := body["message"].([]any)
 
-			if (len(receiving_arr) != len(seen_messages_arr) && ok) {
+			// if (len(receiving_arr) != len(seen_messages_arr) && ok) {
+			if (ok) {
 				for _, v := range receiving_arr {
 					value := int(v.(float64))
 					_, ok = seen_messages[value]
 					if !ok {
 						seen_messages[value] = true 
 						seen_messages_arr = append(seen_messages_arr, value)
+						pending = append(pending, value)
 					}
 				}
 			}
@@ -74,6 +77,7 @@ func main() {
 			if !seen_ok {
 				seen_messages_arr = append(seen_messages_arr, in)
 				seen_messages[in] = true
+				pending = append(pending, in)
 			}
 		}
 	
@@ -146,14 +150,14 @@ func main() {
 
 
 	go func() {
-		ticker := time.NewTicker(500 * time.Millisecond)
+		ticker := time.NewTicker(50 * time.Millisecond)
 		defer ticker.Stop()
 
 		for range ticker.C {
 			if !initialized {
 				continue
 			}
-			gossip(n, topology, seen_messages_arr)
+			gossip(n, topology, &pending)
 		}
 	}()
 
@@ -164,14 +168,29 @@ func main() {
 
 }
 
-func gossip(n *maelstrom.Node, topology map[string][]string, seen []int) {
-		id := n.ID()
+func pickRandomNeighbors(topo map[string][]string, id string, k int) []string {
+	ns := append([]string(nil), topo[id]...) 
+	rand.Shuffle(len(ns), func(i, j int) { ns[i], ns[j] = ns[j], ns[i] })
+	if k > len(ns) {
+		k = len(ns)
+	}
+	return ns[:k]
+}
 
-		for _, neighbor := range topology[id] {
-			n.Send(neighbor, map[string]any{
-				"type":    "broadcast",
-				"message": seen,
-				"is_array": "yes",
-			})
+func gossip(n *maelstrom.Node, topology map[string][]string, seen *[]int) {
+		// id := n.ID()
+		neighbors := pickRandomNeighbors(topology, n.ID(), 3)
+
+		if (len(*seen) > 0) {
+			// for _, neighbor := range topology[id] {
+			for _, neighbor := range neighbors {
+				n.Send(neighbor, map[string]any{
+					"type":    "broadcast",
+					"message": *seen,
+					"is_array": "yes",
+				})
+			}
+
+			*seen = make([]int, 0)
 		}
 }
