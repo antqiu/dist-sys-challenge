@@ -6,7 +6,6 @@ import (
 	// "time"
 	// "math/rand"
 	"sync"
-	"strconv"
 
     maelstrom "github.com/jepsen-io/maelstrom/demo/go"
 )
@@ -14,6 +13,11 @@ import (
 func main() {
 	n := maelstrom.NewNode()
 	logs := make(map[string][][]int)
+	committed := make(map[string]map[string]int)
+	//   "offsets": {
+//     "k1": 1000,
+//     "k2": 2000
+//   }
 	
 	var mu sync.Mutex
 
@@ -32,22 +36,11 @@ func main() {
 		message := int(messageRaw)
 
 		key, _ := body["key"].(string)
-		keyId, _ := strconv.Atoi(key[1:]) // key, increment most recent key by 1 every time
 		
 		mu.Lock()
 		defer mu.Unlock()
 		
-		nextOffset := keyId * 1000
-
-		if (logs[key] != nil) {
-			// mu.Lock()
-			// mostRecentEntry := logs[keyId][-1]
-			// mu.Unlock()
-
-			// mostRecentOffset := mostRecentEntry[0] // last offset 
-			nextOffset = len(logs[key]) + 1
-		 }
-
+		nextOffset := len(logs[key]) + 1
 		logs[key] = append(logs[key], []int{nextOffset, message})
 		response["offset"] = nextOffset
 		
@@ -106,6 +99,23 @@ func main() {
 		response := make(map[string]any)
 		response["type"] = "commit_offsets_ok"
 
+		client := msg.Src
+		offsets := body["offsets"].(map[string]any)
+
+		mu.Lock()
+		defer mu.Unlock()
+
+		if committed[client] == nil {
+			committed[client] = make(map[string]int)
+		}
+
+		for key, raw := range offsets {
+			offset := int(raw.(float64))
+			if cur, ok := committed[client][key]; !ok || offset > cur {
+				committed[client][key] = offset
+			}
+		}
+
 		// Echo the original message back with the updated message type.
 		return n.Reply(msg, response)
 	})
@@ -117,21 +127,25 @@ func main() {
 			return err
 		}
 
-		keys, _ := body["keys"].([]string)
-		
-		// Update the message type to return back.
-		response := make(map[string]any)
-		response["type"] = "list_committed_offsets_ok"
-		
+		client := msg.Src
+		rawKeys := body["keys"].([]any)
+
 		offsets := make(map[string]int)
-		for _, key := range keys {
-			if (logs[key] != nil) {
-				keyId, _ := strconv.Atoi(key[1:]) // key, increment most recent key by 1 every time
-				nextOffset := keyId * 1000
-				offsets[key] = nextOffset
+
+		mu.Lock()
+		defer mu.Unlock()
+
+		for _, rk := range rawKeys {
+			key := rk.(string)
+			if committed[client] != nil {
+				if off, ok := committed[client][key]; ok {
+					offsets[key] = off
+				}
 			}
 		}
-		response["offsets"] = offsets	
+		
+		response := make(map[string]any)
+		response["offsets"] = offsets
 
 		// Echo the original message back with the updated message type.
 		return n.Reply(msg, response)
